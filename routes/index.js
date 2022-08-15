@@ -1,119 +1,67 @@
 var express = require("express");
 var router = express.Router();
-const StreamZip = require("node-stream-zip");
-const https = require("https"); // or 'https' for https:// URLs
 const fs = require("fs");
 const chalk = require("chalk");
-const unzip = require("unzipper");
 router.get("/", async function (req, res, next) {
   res.render("index", { title: "Data Extraction" });
 });
-const { Parser } = require("json2csv");
-// var encoding = require('encoding-japanese');
-// var fileBuffer = fs.readFileSync('Input_File.json.gz');
-// console.log(encoding.detect(fileBuffer))
-const { ungzip } = require("node-gzip");
 const createCsvWriter = require("csv-writer").createObjectCsvWriter;
+const zlib = require("zlib");
 
-async function process_archive(filename) {
-  try {
-    const sitemap = await ungzip(filename).toString();
-    // fs.createReadStream(filename)
-    //   .pipe(unzip.Parse())
-    //   .on("entry", function (entry) {
-    //     console.log(entry);
-    //     // entry.path is file name
-    //     // entry.type is 'Directory' or 'File'
-    //     // entry.size is size of file
-    //     const chunks = [];
-    //     entry.on("data", (data) => {
-    //       chunks.push(data);
-    //       console.log(data);
-    //     });
-    //     entry.on("error", (err) => console.log(err));
-    //     entry.on("end", () => {
-    //       let content = Buffer.concat(chunks).toString("utf8");
-    //       // process_my_file(entry.path, content);
-    //       entry.autodrain();
-    //     });
-    //   });
-    return;
-  } catch (error) {
-    console.log(error);
-  }
-}
+async function process_archive() {
+  return new Promise((resolve, reject) => {
+    try {
+      const fileContents = fs.createReadStream(`./zippedfile.json.gz`);
+      const writeStream = fs.createWriteStream("unzipped.json");
+      const unzip = zlib.createGunzip();
 
-function bytesToSize(bytes) {
-  var sizes = ["Bytes", "KB", "MB", "GB", "TB"];
-  if (bytes == 0) return "0 Byte";
-  var i = parseInt(Math.floor(Math.log(bytes) / Math.log(1024)));
-  return Math.round(bytes / Math.pow(1024, 2), 2) + " " + sizes[2];
+      fileContents
+        .pipe(unzip)
+        .on("end", (res) => {
+          console.log(chalk.green("====> UNZIPPING FINISHED !"));
+          JsonToCSVConverter("unzipped.json");
+        })
+        .pipe(writeStream);
+
+      resolve({
+        success: true,
+      });
+    } catch (error) {
+      console.log(error);
+      reject({
+        success: false,
+      });
+    }
+  });
 }
-const exampleURL =
-  "https://uhc-tic-mrf.azureedge.net/public-mrf/2022-08-01/2022-08-01_United-HealthCare-Services_Third-Party-Administrator_PS1-50_C2_in-network-rates.json.gz";
 
 router.post("/process", async function (req, res, next) {
   try {
-    JsonToCSVConverter("Input_File.json");
-    // download(req.body.url,filename, function name(staged) {
-    //     console.log(staged);
-    // });
-    // const request = https.get(req.body.url, function (response) {
-    //   var len = parseInt(response.headers["content-length"], 10);
-    //   len = bytesToSize(len);
-    //   console.log(chalk.yellow("====> DOWNLOAD STARTING !"));
-    //   console.log(response);
-    //   const interval = setInterval(function () {
-    //     // method to be executed;
-    //     console.log(chalk.yellow("====> FILE SIZE IS :" + len));
-    //   }, 5000);
-    //   response.pipe(file);
-    //   file.on("open", function (fd) {
-    //     console.log(chalk.green("====> DOWNLOAD STARTED !"));
-    //   });
-    //   file.on("response", function (data) {
-    //     console.log(data);
-    //   });
-    //   file.on("data", function (data) {
-    //     console.log("data");
-    //   });
-    //   file.on("pipe", function () {
-    //     console.log(chalk.green("====> DOWNLOADING !"));
-    //   });
-    //   file.on("finish", () => {
-    //     clearInterval(interval);
-    //     file.close();
-    //     console.log(chalk.green("====> DOWNLOAD COMPLETED !"));
-    //   });
-    //   file.on("error", (err) => {
-    //     clearInterval(interval);
-    //     fs.unlink(filename);
-    //     console.log(chalk.red("====> DOWNLOAD FAILED !"));
-    //     console.log(err);
-    //   });
-    // });
-
-    // process_archive("./Input_File.json.gz");
-
-    // const zip = new StreamZip.async({ file: "2022-08-01_United-HealthCare-Services_Third-Party-Administrator_PS1-50_C2_in-network-rates.json.gz" });
-    res.send("OKAY");
+    download(req.body.url, function name(staged) {
+      console.log(staged);
+    });
+    return res.end();
   } catch (error) {
     console.log(error);
   }
-  // res.render('index', { title: 'Data Extraction' });
 });
 
-function download(fileUrl, apiPath, callback) {
+function download(fileUrl, callback) {
+  let prot = fileUrl.includes("https");
+  let https
+  if (prot) {
+    https = require("https");
+  } else {
+    https = require("http");
+  }
   var url = require("url"),
-    https = require("https"),
     p = url.parse(fileUrl),
     timeout = 1000000000;
 
-  var file = fs.createWriteStream(apiPath);
+  var file = fs.createWriteStream("zippedfile.json.gz");
 
   var timeout_wrapper = function (req) {
     return function () {
-      console.log("abort");
       req.abort();
       callback("File transfer timeout!");
     };
@@ -133,20 +81,17 @@ function download(fileUrl, apiPath, callback) {
             "% " +
             "\033[0G \r"
         );
-        // process.stdout.write(" DOWNLOADING : " + ((100.0 * downloaded) / len).toFixed(2) + "% " + downloaded + " bytes" +  "\033[0G \r");
-        // reset timeout
         clearTimeout(timeoutId);
         timeoutId = setTimeout(fn, timeout);
       })
       .on("end", function () {
-        // clear timeout
         clearTimeout(timeoutId);
         file.end();
-        console.log(" DOWNLOAD COMPLETED STORED: " + apiPath);
+        console.log(" DOWNLOAD COMPLETED STORED: ");
+        process_archive();
         callback(null);
       })
       .on("error", function (err) {
-        // clear timeout
         clearTimeout(timeoutId);
         callback(err.message);
       });
@@ -154,13 +99,12 @@ function download(fileUrl, apiPath, callback) {
 
   // generate timeout handler
   var fn = timeout_wrapper(request);
-
   // set initial timeout
   var timeoutId = setTimeout(fn, timeout);
 }
 
 const JsonToCSVConverter = (file) => {
-  let data = require("../" + file);
+  let data = require(`../${file}`);
   // Data extraction for providers.csv
   let records = [];
   for (let i in data.provider_references) {
@@ -246,23 +190,48 @@ const JsonToCSVConverter = (file) => {
       { id: "billing_class", title: "billing_class" },
       { id: "expiration_date", title: "expiration_date" },
       { id: "negotiated_type", title: "negotiated_type" },
+      { id: "service_code", title: "service_code" },
       // { id: "service_code_group", title: "service_code_group" },
     ],
   });
   let rates_records = [];
   for (let x in data.in_network) {
     let rates_record = {};
-    for(let y in data.in_network[x].negotiated_rates){
-      rates_record.billing_code= data.in_network[x].billing_code;
-      rates_record.billing_code_modifier = data.in_network[x].negotiated_rates[y].billing_code_modifier ? data.in_network[x].negotiated_rates[y].billing_code_modifier[0]:null;
-      rates_record.billing_code_type_version= data.in_network[x].billing_code_type_version;
-      rates_record.provider_references = data.in_network[x].negotiated_rates[y].provider_references;
-      rates_record.negotiated_rate = data.in_network[x].negotiated_rates[y].negotiated_prices[0].negotiated_rate;
-      rates_record.billing_class = data.in_network[x].negotiated_rates[y].negotiated_prices[0].billing_class;
-      rates_record.expiration_date = data.in_network[x].negotiated_rates[y].negotiated_prices[0].expiration_date;
-      rates_record.negotiated_type = data.in_network[x].negotiated_rates[y].negotiated_prices[0].negotiated_type;
-      rates_records.push(rates_record)
-      rates_record = {}
+    for (let y in data.in_network[x].negotiated_rates) {
+      rates_record.billing_code = data.in_network[x].billing_code;
+      rates_record.billing_code_modifier = data.in_network[x].negotiated_rates[
+        y
+      ].billing_code_modifier
+        ? data.in_network[x].negotiated_rates[y].billing_code_modifier[0]
+        : null;
+      rates_record.billing_code_type_version =
+        data.in_network[x].billing_code_type_version;
+      rates_record.provider_references =
+        data.in_network[x].negotiated_rates[y].provider_references;
+      rates_record.negotiated_rate =
+        data.in_network[x].negotiated_rates[
+          y
+        ].negotiated_prices[0].negotiated_rate;
+      rates_record.billing_class =
+        data.in_network[x].negotiated_rates[
+          y
+        ].negotiated_prices[0].billing_class;
+      rates_record.expiration_date =
+        data.in_network[x].negotiated_rates[
+          y
+        ].negotiated_prices[0].expiration_date;
+      rates_record.negotiated_type =
+        data.in_network[x].negotiated_rates[
+          y
+        ].negotiated_prices[0].negotiated_type;
+      let service_codes = "";
+      
+      data.in_network[x].negotiated_rates[y].negotiated_prices[0].service_code.map((x) => {
+        service_codes += `${x},`;
+      });
+      rates_record.service_code = service_codes;
+      rates_records.push(rates_record);
+      rates_record = {};
     }
   }
   csvWriter3
